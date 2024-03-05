@@ -1,0 +1,941 @@
+---
+title: "Devoir 1 (OLS)"
+author: "DANIEL GIAO (GIAD14029707)"
+date: "01/02/2020"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    keep_md: true
+---
+# INTRODUCTION
+Nous avons à notre disposition un ensemble de données sur des comptés aux États-Unis et nous voulons certes mettre en œuvre, sur des vraies données, les techniques exposées en cours. En effet, les observations tirées de cette base de données peuvent être représentées graphiquement par un nuage de point. Ainsi, nous s’intéresserons à tracer la droite qui s’ajuste le mieux possible à ce nuage de points. Autrement dit, nous recherchons une relation affine entre la variable à expliquer et les variables explicatives. De ce fait, l’objectif principale du premier devoir de STT5100 est axé sur la construction d’un modèle linéaire par la méthode des moindres carrés ordinaires (MCO). La méthode MCO est une approche naturelle qui consiste, en autres, à estimer les paramètres β qui permet de minimiser la somme des carrés des résidus (SCR), c’est-à-dire, de rendre minimale la somme des carrés des écarts des valeurs observées $y_{i}$ à la prévision $\hat{y_{i}} = x^{⊤}_{i}\hat{β}$. Dans le cadre du projet, nous présenterons, en premier lieu, les variables qui pourraient potentiellement être intéressantes pour la construction du modèle. En deuxième lieu, nous expliquerons comment nous sommes parvenus, d’une part, à l’amélioration d’un modèle simple. D’autre part, nous allons également expliquer la méthode exploitée permettant de construire parallèlement un second modèle plus complexe et d’illustrer les moyens de le simplifier. En dernier lieu, nous présenterons sommairement la forme finale des deux modèles construites à l’étape précédente en comparant leur coefficient d’ajustement ajusté $R^{2}_{adj}$ , leur indice d’Akaike AIC et leur indice de BIC.
+
+# PARTIE I
+
+Dans cette partie exploratoire, nous présenterons les variables qui pourraient potentiellement être intéressantes pour la construction du modèle. Dans un premier temps, nous allons d’abord nous focaliser sur la base de données fournies. La base de données contient 1274 observations sur des comptés aux États-Unis et 32 variables. Précisement, TARGET_deathRate est la variable d’intérêt représentant la moyenne par habitant (100 000) décès par cancer. 
+
+```{r}
+code_permanent = "GIAD14029707"
+loc_fichier = paste("http://freakonometrics.free.fr/",code_permanent,"H2020D1.RData",sep="")
+download.file(loc_fichier, "base_devoir_1.RData")
+load("base_devoir_1.RData")
+DF<-database
+str(DF)
+```
+
+## (1.1) COMBINER LES MODALITÉS DES VARIABLE FACTORIELLE
+
+Parmi les 31 autres variables explicatives, nous avons deux variables factorielles, dont binnedInc et Geography. En effet, ces deux variables de type factorielle comportent individuellement plusieurs modalités et nous pose certes un véritable problème parce que chaque modalité nous ajoute une variable explicative de plus à considérer pour la modélisation. Par exemple, la variable Geography contient 3047 modalités et par conséquent, nous devons considérer 3047 variables explicatives de plus. Pour y remédier, nous allons les regrouper efficacement les modalités afin de simplifier la procédure de sélection de variables explicatives à l’aide des boîtes à moustaches et du test de Fisher. 
+
+### (1.1.1) VARIABLE binnedInc
+
+D’abords, la variable binnedInc est constituée de 10 modalités. Toutefois, la boîte à moustaches n’a retenu que 8 modalités étant significatives.
+
+```{r}
+with(data = DF, boxplot(TARGET_deathRate~binnedInc,cex=.5,col=grey(.8)))
+
+```
+
+Afin d’obtenir la visualisation la plus nette possible à notre boîte à moustaches, nous avons commencé par réordonner les modalités en prenant comme référence le revenu médian par habitant par décile ayant la moyenne par habitant (100 000) décès par cancer, le plus faible. Précisément, le décile (61494.5, 125635] est notre modalité de référence.
+
+```{r}
+A = with(data = DF, aggregate(TARGET_deathRate,by=list(binnedInc),FUN=mean))
+A = A[order(A$x),]
+L = as.character(A$Group.1)
+DF$binnedInc= factor(DF$binnedInc, level=L)
+with(data = DF, boxplot(TARGET_deathRate~binnedInc,cex=.5,col=grey(.8)))
+reg_binnedInc = lm(TARGET_deathRate~binnedInc, data = DF)
+summary(reg_binnedInc)
+```
+
+Au premier abord, aucune modalité nous semble adéquate pour regrouper avec le décile (61494.5, 125635]. De ce fait, nous allons recommencer la procédure en mettant, cette fois-ci, (54545.6, 61494.5] comme modalité de référence.
+
+```{r}
+DF$binnedInc = relevel(DF$binnedInc,"(54545.6, 61494.5]")
+with(data = DF, boxplot(TARGET_deathRate~binnedInc,cex=.5,col=grey(.8)))
+reg_binnedInc = lm(TARGET_deathRate~binnedInc, data = DF)
+summary(reg_binnedInc)
+```
+
+Nous allons effectuer un test multiple afin de tester si les 5 déciles suivants ont effectivement des coefficients nuls dans la régression linéaire : (37413.8, 40362.7], (40362.7, 42724.4], (51046.4, 54545.6], (48021.6, 51046.4] et (45201, 48021.6]. De ce fait, nous allons procéder avec un test de Fisher.
+
+```{r}
+library(car)
+linearHypothesis(reg_binnedInc, c("binnedInc(37413.8, 40362.7] = 0", 
+                        "binnedInc(40362.7, 42724.4] = 0",
+                        "binnedInc(45201, 48021.6]  = 0",
+                        "binnedInc(48021.6, 51046.4]= 0",
+                        "binnedInc(51046.4, 54545.6] = 0"))
+```
+
+Le statistique de Fisher est faible avec une p-value de 0.1037. Cependant, avant de précipiter le regroupement de ces cinq modalités, il est nécessaire de vérifier s’il serait également adéquat de d’ajouter le décile (42724.4, 45201] au regroupement précédent.
+
+```{r}
+linearHypothesis(reg_binnedInc, c("binnedInc(37413.8, 40362.7] = 0", 
+                                  "binnedInc(40362.7, 42724.4] = 0",
+                                  "binnedInc(51046.4, 54545.6] = 0",
+                                  "binnedInc(48021.6, 51046.4]= 0",
+                                  "binnedInc(45201, 48021.6]  = 0",
+                                  "binnedInc(42724.4, 45201] = 0"))
+```
+
+Or, Le statistique de Fisher avec l’ajout du décile (42724.4, 45201] est relativement élevé avec une p-value de 0.01069. Ainsi, nous décidons de ne pas inclure le décile (42724.4, 45201] au regroupement des cinq modalités précédentes.
+
+```{r}
+levels(DF$binnedInc) = c("B","A",rep("B",5),"C")
+DF$binnedInc = relevel(DF$binnedInc,"A")
+with(data = DF, boxplot(TARGET_deathRate~binnedInc,cex=.5,col=grey(.8)))
+reg_binnedInc = lm(TARGET_deathRate~binnedInc, data = DF)
+summary(reg_binnedInc)
+```
+
+Enfin, nous avons réussi à réduire le nombre de modalités pour la variable binnedInc et nous nous retrouvons avec les trois sous-groupes suivants : A, B et C.
+
+Où
+
+binnedIncA = (61494.5, 125635]
+
+binnedIncB = (37413.8, 42724.4] et (45201, 461494.5]
+
+binnedIncC =  (42724.4, 45201]
+
+### (1.1.2) VARIABLE Geography
+
+Ensuite, la variable Geography est constituée de 3047 modalités en totale et par induction, nécessite un regroupement davantage complexe. Afin d’aboutir au regroupement des modalités, nous avons décidé de créer une nouvelle variable explicative dans la base de données réunissant tous les comptés américains par leur état respectif. Par conséquent, ce rassemblement nous permet de réduire de manière importante le nombre de modalités à 50. Par la suite, nous allons procéder au regroupement des états similairement à la méthode utilisée pour combiner les modalités de la variable binnedInc, c’est-à-dire à l’aide des boîtes à moustaches et du test de Fisher.
+
+Afin d’obtenir la visualisation la plus nette possible à notre boîte à moustaches, nous avons commencé par réordonner les modalités en prenant comme référence l’état américain ayant la moyenne par habitant (100 000) décès par cancer, le plus faible. Précisément, l’état de Colorado est notre modalité de référence.
+
+```{r}
+DF$States=sub(".*, *(.*?) * *", "\\1", DF$Geography)
+A = with(data = DF, aggregate(TARGET_deathRate,by=list(States),FUN=mean))
+A = A[order(A$x),]
+L = as.character(A$Group.1)
+DF$States= factor(DF$States, level=L)
+with(data = DF, boxplot(TARGET_deathRate~States,cex=.5,col=grey(.8)))
+reg_States = lm(TARGET_deathRate~States, data = DF)
+summary(reg_States)
+```
+
+Nous allons effectuer un test multiple afin de tester si les six états américains suivants ont effectivement des coefficients nuls dans la régression linéaire : Utah, Hawaii, Idaho, New Mexico, Arizona et Rhode Island. De ce fait, nous allons procéder avec un test de Fisher.
+
+```{r}
+linearHypothesis(reg_States, c("StatesUtah = 0", 
+                               "StatesHawaii  = 0",
+                               "StatesIdaho  = 0",
+                               "StatesNew Mexico = 0",
+                               "StatesArizona  = 0",
+                               "StatesRhode Island = 0"))
+```
+Le statistique de Fisher est faible avec une p-value de 0.1036. Nous allons donc regrouper ces six modalités. Récursivement, nous allons recommencer la procédure en mettant, cette fois-ci, l'état de Californie comme modalité de référence.
+
+```{r}
+levels(DF$States) = c(rep("A",4),levels(DF$States)[5],"A",levels(DF$States)[7:14],"A",levels(DF$States)[16],"A",levels(DF$States)[18:50])
+DF$States = relevel(DF$States,"California")
+with(data = DF, boxplot(TARGET_deathRate~States,cex=.5,col=grey(.8)))
+reg_States = lm(TARGET_deathRate~States, data = DF)
+summary(reg_States)
+```
+
+Nous allons effectuer un test multiple afin de tester si les dix-huit états américains suivants ont des coefficients nuls dans la régression linéaire : Montana, Connecticut, Washington, North Dakota, South Dakota, Wyoming, Minnesota, Nebraska, Massachusetts, Kansas, Florida, North Carolina, Oregon, South Carolina, New Hampshire, Maine, Alabama et Delaware.
+
+```{r}
+linearHypothesis(reg_States, c("StatesMontana = 0", 
+                               "StatesConnecticut = 0",
+                               "StatesWashington = 0",
+                               "StatesNorth Dakota = 0",
+                               "StatesSouth Dakota  = 0",
+                               "StatesWyoming = 0",
+                               "StatesMinnesota = 0",
+                               "StatesNebraska  = 0",
+                               "StatesMassachusetts = 0",
+                               "StatesKansas =0",
+                               "StatesFlorida =0",
+                               "StatesNorth Carolina =0",
+                               "StatesOregon = 0",
+                               "StatesSouth Carolina =0",
+                               "StatesNew Hampshire =0",
+                               "StatesMaine =0",
+                               "StatesAlabama =0",
+                               "StatesDelaware =0"))
+```
+
+Le statistique de Fisher est faible avec une p-value de 0.2236. Nous allons donc regrouper ces dix-huit modalités. Encore une fois, nous allons recommencer la procédure en mettant, cette fois-ci, l'état de Texas comme modalité de référence.
+
+```{r}
+levels(DF$States) = c("B",levels(DF$States)[2],rep("B",11),
+                      levels(DF$States)[14],rep("B",2),
+                      levels(DF$States)[17:18],rep("B",2),
+                      levels(DF$States)[21:25],"B",
+                      levels(DF$States)[27:28],"B",
+                      levels(DF$States)[30:34],"B",
+                      levels(DF$States)[36:44])
+DF$States = relevel(DF$States,"Texas")
+with(data = DF, boxplot(TARGET_deathRate~States,cex=.5,col=grey(.8)))
+reg_States = lm(TARGET_deathRate~States, data = DF)
+summary(reg_States)
+```
+
+Nous allons effectuer un test multiple afin de tester si les seize états américains suivant ont des coefficients nuls dans la régression linéaire : Iowa, Michigan, Wisconsin, New York, Georgia, Maryland, Nevada, Pennsylvania, New Jersey, Virginia, Oklahoma, Missouri, Vermont, Louisiana, Alaska et Arkansas.
+
+```{r}
+linearHypothesis(reg_States, c("StatesIowa  = 0", 
+                               "StatesMichigan  = 0",
+                               "StatesWisconsin = 0",
+                               "StatesNew York = 0",
+                               "StatesGeorgia  = 0",
+                               "StatesMaryland = 0",
+                               "StatesNevada = 0",
+                               "StatesPennsylvania  = 0",
+                               "StatesNew Jersey = 0",
+                               "StatesVirginia =0",
+                               "StatesOklahoma =0",
+                               "StatesMissouri =0",
+                               "StatesVermont = 0",
+                               "StatesLouisiana =0",
+                               "StatesAlaska  =0",
+                               "StatesArkansas =0"))
+```
+
+Le statistique de Fisher est faible avec une p-value de 0.1384. Nous allons donc regrouper ces seize modalités. Par la suite, nous allons recommencer la procédure en mettant, cette fois-ci, l'état de Illinois comme modalité de référence.
+
+```{r}
+levels(DF$States) = c("C",levels(DF$States)[2:3],rep("C",14),
+                      levels(DF$States)[18:19],rep("C",2),
+                      levels(DF$States)[22:26])
+DF$States = relevel(DF$States,"Illinois")
+with(data = DF, boxplot(TARGET_deathRate~States,cex=.5,col=grey(.8)))
+reg_States = lm(TARGET_deathRate~States, data = DF)
+summary(reg_States)
+```
+
+Nous allons effectuer un test multiple afin de tester si les six états américains restant ont des coefficients nuls dans la régression linéaire : Ohio, Indiana, Tennessee, West Virginia, Kentucky et Mississippi.
+
+```{r}
+linearHypothesis(reg_States, c("StatesOhio = 0", 
+                               "StatesIndiana = 0",
+                               "StatesTennessee = 0",
+                               "StatesWest Virginia = 0",
+                               "StatesKentucky = 0",
+                               "StatesMississippi= 0"))
+```
+
+Le statistique de Fisher est faible avec une p-value de 0.1822. Ainsi, nous allons regrouper ces six modalités.
+
+```{r}
+levels(DF$States) = c("D",levels(DF$States)[2:4],rep("D",6))
+DF$States = relevel(DF$States,"A")
+with(data = DF, boxplot(TARGET_deathRate~States,cex=.5,col=grey(.8)))
+reg_States = lm(TARGET_deathRate~States, data = DF)
+summary(reg_States)
+```
+
+En résumé, nous avons introduit dans la base de données une nouvelle variable nommée « States » qui rassemble tous les comptés américains par états et nous avons réussi à réduire significativement le nombre de modalités qu’elle possédait initialement. Nous nous retrouvons donc avec les quatre sous-groupes suivants : A, B, C et D.
+
+Où
+
+StatesA = Utah, Hawaii, Idaho, New Mexico, Arizona et Rhode Island
+
+StatesB = Montana, Connecticut, Washington, North Dakota, South Dakota, Wyoming, Minnesota, Nebraska, Massachusetts, Kansas, Florida, North Carolina, Oregon, South Carolina, New Hampshire, Maine et Alabama, Delaware
+
+StatesC = Iowa, Michigan, Wisconsin, New York, Georgia, Maryland, Nevada, Pennsylvania, New Jersey, Virginia, Oklahoma, Missouri, Vermont, Louisiana, Alaska et Arkansas
+
+SatesD = Ohio, Indiana, Tennessee, West Virginia, Kentucky et Mississippi.
+
+
+## (1.2) TEST DE CORRÉLATION
+
+Dans un deuxième temps, afin de simplifier la sélection des variables explicatives, nous allons réduire le nombre de variables explicatives à considérer en se fiant à un test de corrélation. En effet, le test de corrélation permet d’évaluer la dépendance entre deux variables en calculant leur coefficient de corrélation. Certes, lorsque nous avons deux variables explicatives qui sont très corrélés, il est redondant de garder ces deux variables pour la construction du modèle en raison qu’elles ne nous apportent pas d’information supplémentaire dans la prévision. Nous avons donc l’option de supprimer la moins pertinente parmi les deux afin de faciliter la sélection des variable explicatives. 
+
+Pour se faire, nous avons d’abords vérifié qu’il n’y a effectivement pas de données de type « N/A » dans la base de données. Il n’y a donc pas d’ajustements à faire par rapport aux données manquantes. Cependant, les variables factorielles peuvent causer problèmes dans le calcul du coefficient de corrélation, donc nous devons faire une petite conversion numérique temporaire avant de pouvoir procéder au calcul de la matrice de corrélation. De plus, nous ne devons pas oublier de retirer la variable Geography de la base de données, étant donné qu’elle sera remplacée par la nouvelle variable States.  
+
+```{r}
+
+sapply(DF,function(X) sum(is.na(X)))
+
+DF<-DF[,-13]
+DF$binnedInc<-as.numeric(as.factor(DF$binnedInc))
+DF$States<-as.numeric(as.factor(DF$States))
+COR_MAT<-cor(DF[,-3],method = "pearson")
+
+```
+
+Remarques : Nous avons retiré la variable TARGET_deathRate du calcul de la matrice de corrélation puisqu’il ne fait pas parti des variables explicatives à comparer. Par ailleurs, le test de corrélation par la méthode de Pearson a été retenue et nous permet mesurer la dépendance linéaire entre nos variables.
+
+Ensuite, le package plotly de R est uniquement utilisé dans ce devoir pour visualiser la matrice de corrélation. En effet, un corrélogramme est une représentation graphique de la matrice de corrélation et nous permet de mettre en évidence les variables les plus corrélés. 
+
+```{r}
+library(plotly)
+names<-names(DF[,-3])
+plot_ly(x=names,y=names,z = COR_MAT, colors = colorRamp(c("red", "green")), type = "heatmap")
+```
+
+La figure ci-haut illustre une forte corrélation entre certaines variables. Notamment, les paires de variables explicatives suivantes ont un coefficient de corrélation supérieur à 0.7:
+
+( 1.2.1 ) avgDeathsPerYear/avgAnnCount = 0.8725434
+
+( 1.2.2 ) popEst2015/avgDeathsPerYear = 0.9696808
+
+( 1.2.3 ) popEst2015/avgAnnCount = 0.8569039
+
+( 1.2.4 ) binnedInc/medIcome = 0.8390433
+
+( 1.2.5 ) MedianAgeFemale/MedianAgeMale = 0.948302
+
+( 1.2.6 ) PctPublicCoverageAlone/PctPublicCoverage = 0.7714239
+
+( 1.2.7 ) PctMarriedHouseholds/PercentMarried = 0.7697667
+
+
+### (1.2.1)-(1.2.2)-(1.2.3) avgDeathsPerYear/avgAnnCount/popEst2015
+
+Nous observons un triangle de corrélation très élevé entre les variables avgDeathsPerYear, avgAnnCount et popEst2015. Nous allons donc comparer leur p-value et nous retiendrons uniquement la variable ayant la valeur du p-value la plus faible.
+
+```{r}
+reg_avgDeathsPerYear=lm(TARGET_deathRate~avgDeathsPerYear, data =DF)
+summary(reg_avgDeathsPerYear)
+```
+```{r}
+reg_avgAnnCount=lm(TARGET_deathRate~avgAnnCount, data =DF)
+summary(reg_avgAnnCount)
+
+```
+
+```{r}
+reg_popEst2015=lm(TARGET_deathRate~popEst2015, data =DF)
+summary(reg_popEst2015)
+```
+
+Ainsi, entre avgDeathsPerYear, avgAnnCount et popEst2015, nous avons décidé de seulement retenir variable avgAnnCount puisqu’elle nous semble d’être la plus pertinente à inclure dans le modèle avec une p-value relativement significative de 0.000219 comparativement à 0.0991 et 0.00163 pour les variables avgDeathsPerYear et popEst2015 respectivement.
+
+
+
+### (1.2.4) binnedInc/medIcome
+
+Les variables binnedInc est medIcome ont un coefficient de corrélation de 0.8390433. Encore une fois, nous allons comparer leur p-value et nous retiendrons uniquement la variable ayant la valeur la plus faible.
+
+```{r}
+reg_binnedInc=lm(TARGET_deathRate~binnedInc, data =DF)
+summary(reg_binnedInc)
+```
+
+```{r}
+reg_medIncome=lm(TARGET_deathRate~medIncome, data =DF)
+summary(reg_medIncome)
+```
+
+Ainsi, entre la variable binnedInc et medIcome, nous avons décidé de retenir la variable medIncome puisqu’elle nous semble d’être la plus pertinente à inclure dans le modèle avec une p-value relativement petite de 1.31e-13 comparativement à 2.844e-10 pour la variable binnedInc.
+
+### (1.2.5) MedianAgeFemale/MedianAgeMale
+
+Les variables MedianAgeFemale et MedianAgeMale sont fortement corrélées avec un coefficient de corrélation 0.948302. Similairement, nous allons comparer leur p-value et nous retiendrons uniquement la variable ayant la valeur la plus faible.
+
+```{r}
+reg_MedianAgeFemale=lm(TARGET_deathRate~MedianAgeFemale, data =DF)
+summary(reg_MedianAgeFemale)
+```
+
+```{r}
+reg_MedianAgeMale=lm(TARGET_deathRate~MedianAgeMale, data =DF)
+summary(reg_MedianAgeMale)
+```
+
+Ainsi, entre la variable MedianAgeFemale et MedianAgeMale nous avons décidé de retenir la variable MedianAgeMale puisqu’elle a une p-value de 0.177 qui est inférieur comparativement à 0.235 pour la variable MedianAgeFemale. Nonobstant que la variable MedianAgeMale toute seule ne s’avère pas pertinente à inclure dans la régression linéaire selon la valeur de son p-value, nous avons néanmoins décidé de la retenir au cas où elle pourrait soudainement devenir pertinente lorsqu’elle est combinée avec d’autres variables explicatives lors de la construction du modèle.
+
+### (1.2.6) PctPublicCoverageAlone/PctPublicCoverage
+
+Les variables PctPublicCoverageAlone et PctPublicCoverage ont un coefficient de corrélation 0.7714239. De la même manière, nous allons comparer leur p-value et nous retiendrons uniquement la variable ayant la valeur la plus faible.
+
+```{r}
+reg_PctPublicCoverageAlone=lm(TARGET_deathRate~PctPublicCoverageAlone, data =DF)
+summary(reg_PctPublicCoverageAlone)
+```
+
+```{r}
+reg_PctPublicCoverage=lm(TARGET_deathRate~PctPublicCoverage, data =DF)
+summary(reg_PctPublicCoverage)
+```
+
+Ainsi, entre PctPublicCoverageAlone et PctPublicCoverage, nous avons décidé de retenir PctPublicCoverageAlone, car elle nous semble d’être la plus pertinente à inclure dans le modèle avec une p-value relativement petite de 2e-16 comparativement à 5.15e-10 pour la variable PctPublicCoverage.
+
+### (1.2.7) PctMarriedHouseholds/PercentMarried
+
+Dernièrement, les variables PctMarriedHouseholds et PercentMarried ont un coefficient de corrélation 0.7697667. Nous allons encore comparer leur p-value et nous retiendrons uniquement la variable ayant la valeur la plus faible.
+
+```{r}
+reg_PctMarriedHouseholds=lm(TARGET_deathRate~PctMarriedHouseholds, data =DF)
+summary(reg_PctMarriedHouseholds)
+```
+
+```{r}
+reg_PercentMarried=lm(TARGET_deathRate~PercentMarried, data =DF)
+summary(reg_PercentMarried)
+```
+
+Ainsi, entre PctMarriedHouseholds et PercentMarried, nous avons décidé de retenir et PercentMarried parce qu’elle nous semble d’être la plus pertinente à inclure dans le modèle avec une p-value relativement petite de 2.29e-10 comparativement à 1.43e-07 pour la variable PctMarriedHouseholds.
+
+## (1.3) SÉLECTION DE VARIABLES EXPLICATIVES INTÉRESSANTES 
+
+Suite au test de corrélation, nous sommes parvenus à effectivement réduire le nombre de variables explicatives susceptibles à être sélectionnées pour la construction du modèle. Voici donc une liste exhaustive des vingt-cinq variables explicatives retenues :
+
+- avgAnnCount
+- medIncome
+- MedianAgeMale
+- PctPublicCoverageAlone
+- PercentMarried
+- incidenceRate
+- povertyPercent
+- studyPerCap
+- MedianAge
+- States
+- AvgHouseholdSize
+- PctNoHS18_24
+- PctHS18_24
+- PctBachDeg18_24
+- PctHS25_Over
+- PctBachDeg25_Over
+- PctEmployed16_Over
+- PctUnemployed16_Over
+- PctPrivateCoverage
+- PctEmpPrivCoverage
+- PctWhite
+- PctBlack
+- PctAsian
+- PctOtherRace
+- BirthRate
+
+
+Également, voici une liste exhaustive de variables explicatives rejetées :
+
+- avgDeathsPerYear
+- popEst2015
+- binnedInc
+- MedianAgeFemale
+- PctPublicCoverage
+- PctMarriedHouseholds
+
+
+Finalement, il ne faut certainement pas oublier de reconvertir les variables qui étaient initialement factorielles, puisque leurs conversions en variables numériques nous ont uniquement servi au calcul de la matrice de corrélation.
+
+```{r}
+DF$binnedInc<-as.factor(as.numeric(DF$binnedInc))
+DF$States<-as.factor(as.numeric(DF$States))
+```
+
+
+Où
+
+binnedInc1 = binnedIncA = (61494.5, 125635]
+
+binnedInc2 = binnedIncB = (37413.8, 42724.4] et (45201, 461494.5]
+
+binnedInc3 = binnedIncC =  (42724.4, 45201]
+
+States1 = StatesA = Utah, Hawaii, Idaho, New Mexico, Arizona et Rhode Island
+
+States2 = StatesB = Montana, Connecticut, Washington, North Dakota, South Dakota, Wyoming, Minnesota, Nebraska, Massachusetts, Kansas, Florida, North Carolina, Oregon, South Carolina, New Hampshire, Maine et Alabama, Delaware
+
+States3 = StatesC = Iowa, Michigan, Wisconsin, New York, Georgia, Maryland, Nevada, Pennsylvania, New Jersey, Virginia, Oklahoma, Missouri, Vermont, Louisiana, Alaska et Arkansas
+
+States4 = SatesD = Ohio, Indiana, Tennessee, West Virginia, Kentucky et Mississippi.
+
+
+# PARTIE II
+
+Dans cette deuxième partie du projet, nous expliquerons de façon détaillée comment nous sommes parvenus à l’amélioration d’un modèle simple. Parallèlement, nous expliquerons également la démarche utilisée permettant de construire un second modèle plus complexe et d’illustrer les moyens de le simplifier.
+
+## (2.1) MODÈLE SIMPLE
+
+À priori, nous avons décidé de créer un modèle initial avec les variables incidenceRate, povertyPercent et PctPrivateCoverage, puisqu’ils nous semblaient être les plus intéressants à inclure pour des raisons purement arbitraires. Pour améliorer notre modèle simple, nous avons tout simplement procédé par la méthode de pas à pas (Stepwise). Précisément, nous avons procédé par « Forwad selection » en ajoutant ou en retirant une variable explicative à la fois et en vérifiant également, à chaque modification, leur significativité dans la régression à l’aide d’un test de Student ou d’un test de Fisher. Par ailleurs, nous avons comparé à chaque étape leur $R^{2}_{adj}$, leur indice AIC et leur indice BIC. Certes, nous désirons idéalement obtenir, à la fin, une valeur de $R^{2}_{adj}$ plus élevé et en revanche, un indice AIC et BIC inférieur aux modèles précédents. À chaque étape, nous désirons aussi que toutes les variables explicatives aient une p-value inférieur 0.001 (***) parce que nous voulons de préférence avoir un modèle simple qui nous donne relativement une bonne prévision et dans lequel toutes ses variables sont super significatives et pertinentes.
+
+```{r}
+modele_00=lm(TARGET_deathRate~#avgAnnCount
+          #+medIncome
+          #+MedianAgeMale
+          #+PctPublicCoverageAlone
+          #+PercentMarried
+          +incidenceRate
+          +povertyPercent
+          #+studyPerCap
+          #+MedianAge
+          #+States
+          #+AvgHouseholdSize
+          #+PctNoHS18_24
+          #+PctHS18_24
+          #+PctBachDeg18_24
+          #+PctHS25_Over
+          #+PctBachDeg25_Over
+          #+PctEmployed16_Over
+          #+PctUnemployed16_Over
+          +PctPrivateCoverage
+          #+PctEmpPrivCoverage
+          #+PctWhite
+          #+PctBlack
+          #+PctAsian
+          #+PctOtherRace
+          #+BirthRate
+          , data = DF)
+summary(modele_00)
+summary(modele_00)$adj.r.squared
+AIC(modele_00)
+AIC(modele_00, k=log(nrow(DF)))
+```
+
+Remarque modele_01 : Nous avons ajouté la variable avgAnnCount, car elle s’avère significative selon le test de Student.
+
+```{r}
+modele_01=lm(TARGET_deathRate~avgAnnCount
+          #+medIncome
+          #+MedianAgeMale
+          #+PctPublicCoverageAlone
+          #+PercentMarried
+          +incidenceRate
+          +povertyPercent
+          #+studyPerCap
+          #+MedianAge
+          #+States
+          #+AvgHouseholdSize
+          #+PctNoHS18_24
+          #+PctHS18_24
+          #+PctBachDeg18_24
+          #+PctHS25_Over
+          #+PctBachDeg25_Over
+          #+PctEmployed16_Over
+          #+PctUnemployed16_Over
+          +PctPrivateCoverage
+          #+PctEmpPrivCoverage
+          #+PctWhite
+          #+PctBlack
+          #+PctAsian
+          #+PctOtherRace
+          #+BirthRate
+          , data = DF)
+summary(modele_01)
+summary(modele_01)$adj.r.squared
+AIC(modele_01)
+AIC(modele_01, k=log(nrow(DF)))
+```
+
+Remarque modele_02 : Nous avons ajouté la variable States, car elle s’avère significative selon le test de Student.
+
+```{r}
+modele_02=lm(TARGET_deathRate~avgAnnCount
+          #+medIncome
+          #+MedianAgeMale
+          #+PctPublicCoverageAlone
+          #+PercentMarried
+          +incidenceRate
+          +povertyPercent
+          #+studyPerCap
+          #+MedianAge
+          +States
+          #+AvgHouseholdSize
+          #+PctNoHS18_24
+          #+PctHS18_24
+          #+PctBachDeg18_24
+          #+PctHS25_Over
+          #+PctBachDeg25_Over
+          #+PctEmployed16_Over
+          #+PctUnemployed16_Over
+          +PctPrivateCoverage
+          #+PctEmpPrivCoverage
+          #+PctWhite
+          #+PctBlack
+          #+PctAsian
+          #+PctOtherRace
+          #+BirthRate
+          , data = DF)
+summary(modele_02)
+summary(modele_02)$adj.r.squared
+AIC(modele_02)
+AIC(modele_02, k=log(nrow(DF)))
+```
+
+Remarque modele_03 : Nous avons ajouté la variable PctHS18_24, car elle s’avère significative selon le test de Student.
+
+```{r}
+modele_03=lm(TARGET_deathRate~avgAnnCount
+          #+medIncome
+          #+MedianAgeMale
+          #+PctPublicCoverageAlone
+          #+PercentMarried
+          +incidenceRate
+          +povertyPercent
+          #+studyPerCap
+          #+MedianAge
+          +States
+          #+AvgHouseholdSize
+          #+PctNoHS18_24
+          +PctHS18_24
+          #+PctBachDeg18_24
+          #+PctHS25_Over
+          #+PctBachDeg25_Over
+          #+PctEmployed16_Over
+          #+PctUnemployed16_Over
+          +PctPrivateCoverage
+          #+PctEmpPrivCoverage
+          #+PctWhite
+          #+PctBlack
+          #+PctAsian
+          #+PctOtherRace
+          #+BirthRate
+          , data = DF)
+summary(modele_03)
+summary(modele_03)$adj.r.squared
+AIC(modele_03)
+AIC(modele_03, k=log(nrow(DF)))
+```
+
+Remarque Modele_04 : Nous avons décidé d’enlever la variable PctPrivateCoverage, puisqu’elle est la moins significative dans la régression selon le test de Student et nous voulons de préférence faire en sorte que toutes ses variables aient une p-value inférieur à 0.001 (***).
+
+```{r}
+modele_04=lm(TARGET_deathRate~avgAnnCount
+          #+medIncome
+          #+MedianAgeMale
+          #+PctPublicCoverageAlone
+          #+PercentMarried
+          +incidenceRate
+          +povertyPercent
+          #+studyPerCap
+          #+MedianAge
+          +States
+          #+AvgHouseholdSize
+          #+PctNoHS18_24
+          +PctHS18_24
+          #+PctBachDeg18_24
+          #+PctHS25_Over
+          #+PctBachDeg25_Over
+          #+PctEmployed16_Over
+          #+PctUnemployed16_Over
+          #+PctPrivateCoverage
+          #+PctEmpPrivCoverage
+          #+PctWhite
+          #+PctBlack
+          #+PctAsian
+          #+PctOtherRace
+          #+BirthRate
+          , data = DF)
+summary(modele_04)
+
+summary(modele_04)$adj.r.squared
+AIC(modele_04)
+AIC(modele_04, k=log(nrow(DF)))
+```
+
+Remarque modele_05 : Nous avons décidé d’enlever la variable avgAnnCount, puisqu’elle est la moins significative dans la régression selon le test de Student et nous voulons de préférence faire en sorte que toutes ses variables aient une p-value inférieur à 0.001 (***).
+
+```{r}
+modele_05=lm(TARGET_deathRate~#avgAnnCount
+          #+medIncome
+          #+MedianAgeMale
+          #+PctPublicCoverageAlone
+          #+PercentMarried
+          +incidenceRate
+          +povertyPercent
+          #+studyPerCap
+          #+MedianAge
+          +States
+          #+AvgHouseholdSize
+          #+PctNoHS18_24
+          +PctHS18_24
+          #+PctBachDeg18_24
+          #+PctHS25_Over
+          #+PctBachDeg25_Over
+          #+PctEmployed16_Over
+          #+PctUnemployed16_Over
+          #+PctPrivateCoverage
+          #+PctEmpPrivCoverage
+          #+PctWhite
+          #+PctBlack
+          #+PctAsian
+          #+PctOtherRace
+          #+BirthRate
+          , data = DF)
+summary(modele_05)
+summary(modele_05)$adj.r.squared
+AIC(modele_05)
+AIC(modele_05, k=log(nrow(DF)))
+```
+
+Remarque modele_06 : Nous avons ajouté la variable PctBachDeg25_Over, car elle s’avère significative selon le test de Student.
+
+```{r}
+modele_06=lm(TARGET_deathRate~#avgAnnCount
+          #+medIncome
+          #+MedianAgeMale
+          #+PctPublicCoverageAlone
+          #+PercentMarried
+          +incidenceRate
+          +povertyPercent
+          #+studyPerCap
+          #+MedianAge
+          +States
+          #+AvgHouseholdSize
+          #+PctNoHS18_24
+          +PctHS18_24
+          #+PctBachDeg18_24
+          #+PctHS25_Over
+          +PctBachDeg25_Over
+          #+PctEmployed16_Over
+          #+PctUnemployed16_Over
+          #+PctPrivateCoverage
+          #+PctEmpPrivCoverage
+          #+PctWhite
+          #+PctBlack
+          #+PctAsian
+          #+PctOtherRace
+          #+BirthRate
+          , data = DF)
+summary(modele_06)
+summary(modele_06)$adj.r.squared
+AIC(modele_06)
+AIC(modele_06, k=log(nrow(DF)))
+```
+
+Remarque modele_07 : Nous avons ajouté la variable PercentMarried car elle s’avère significative selon le test de Student.
+
+```{r}
+modele_07=lm(TARGET_deathRate~#avgAnnCount
+          #+medIncome
+          #+MedianAgeMale
+          #+PctPublicCoverageAlone
+          +PercentMarried
+          +incidenceRate
+          +povertyPercent
+          #+studyPerCap
+          #+MedianAge
+          +States
+          #+AvgHouseholdSize
+          #+PctNoHS18_24
+          +PctHS18_24
+          #+PctBachDeg18_24
+          #+PctHS25_Over
+          +PctBachDeg25_Over
+          #+PctEmployed16_Over
+          #+PctUnemployed16_Over
+          #+PctPrivateCoverage
+          #+PctEmpPrivCoverage
+          #+PctWhite
+          #+PctBlack
+          #+PctAsian
+          #+PctOtherRace
+          #+BirthRate
+          , data = DF)
+summary(modele_07)
+summary(modele_07)$adj.r.squared
+AIC(modele_07)
+AIC(modele_07, k=log(nrow(DF)))
+```
+
+Remarque modele_08 : Nous avons ajouté la variable PctWhite, car elle s’avère significative selon le test de Student.
+
+```{r}
+modele_08=lm(TARGET_deathRate~#avgAnnCount
+          #+medIncome
+          #+MedianAgeMale
+          #+PctPublicCoverageAlone
+          +PercentMarried
+          +incidenceRate
+          +povertyPercent
+          #+studyPerCap
+          #+MedianAge
+          +States
+          #+AvgHouseholdSize
+          #+PctNoHS18_24
+          +PctHS18_24
+          #+PctBachDeg18_24
+          #+PctHS25_Over
+          +PctBachDeg25_Over
+          #+PctEmployed16_Over
+          #+PctUnemployed16_Over
+          #+PctPrivateCoverage
+          #+PctEmpPrivCoverage
+          +PctWhite
+          #+PctBlack
+          #+PctAsian
+          #+PctOtherRace
+          #+BirthRate
+          , data = DF)
+summary(modele_08)
+summary(modele_08)$adj.r.squared
+AIC(modele_08)
+AIC(modele_08, k=log(nrow(DF)))
+```
+
+Remarque modele_09 : Nous avons ajouté la variable PctOtherRace, car elle s’avère significative selon le test de Student.
+
+```{r}
+modele_09=lm(TARGET_deathRate~#avgAnnCount
+          #+medIncome
+          #+MedianAgeMale
+          #+PctPublicCoverageAlone
+          +PercentMarried
+          +incidenceRate
+          +povertyPercent
+          #+studyPerCap
+          #+MedianAge
+          +States
+          #+AvgHouseholdSize
+          #+PctNoHS18_24
+          +PctHS18_24
+          #+PctBachDeg18_24
+          #+PctHS25_Over
+          +PctBachDeg25_Over
+          #+PctEmployed16_Over
+          #+PctUnemployed16_Over
+          #+PctPrivateCoverage
+          #+PctEmpPrivCoverage
+          +PctWhite
+          #+PctBlack
+          #+PctAsian
+          +PctOtherRace
+          #+BirthRate
+          , data = DF)
+summary(modele_09)
+summary(modele_09)$adj.r.squared
+AIC(modele_09)
+AIC(modele_09, k=log(nrow(DF)))
+```
+
+Remarque modele_10 : Nous avons décidé d’enlever la variable PercentMarried, puisqu’elle est la moins significative dans la régression selon le test de Student et nous voulons de préférence faire en sorte que toutes ses variables aient une p-value inférieur à 0.001 (***).
+
+```{r}
+modele_10=lm(TARGET_deathRate~#avgAnnCount
+          #+medIncome
+          #+MedianAgeMale
+          #+PctPublicCoverageAlone
+          #+PercentMarried
+          +incidenceRate
+          +povertyPercent
+          #+studyPerCap
+          #+MedianAge
+          +States
+          #+AvgHouseholdSize
+          #+PctNoHS18_24
+          +PctHS18_24
+          #+PctBachDeg18_24
+          #+PctHS25_Over
+          +PctBachDeg25_Over
+          #+PctEmployed16_Over
+          #+PctUnemployed16_Over
+          #+PctPrivateCoverage
+          #+PctEmpPrivCoverage
+          +PctWhite
+          #+PctBlack
+          #+PctAsian
+          +PctOtherRace
+          #+BirthRate
+          , data = DF)
+summary(modele_10)
+summary(modele_10)$adj.r.squared
+AIC(modele_10)
+AIC(modele_10, k=log(nrow(DF)))
+```
+
+## (2.2) MODÈLE COMPLEXE
+
+Contrairement au modèle simple, l’idée du modèle complexe est de commencer avec une régression sur toutes les variables. Par la suite, en procédant par la méthode Stepwise, on enlève une à une les variables explicatives en minimisant leur indice AIC ou BIC à chaque étape. En effet, la fonction $\bf{step}$ du logiciel R permet d’automatiser la procédure rigoureuse de la méthode Stepwise et compare également les combinaisons obtenues dans les deux directions, c’est-à-dire par « Forwad selection » et par « Backward selection ». De ce fait, nous allons simplifier notre modèle complexe par la méthode Stepwise en utilisant la fonction $\bf{step}$.
+
+```{r}
+modele_cmplx=lm(TARGET_deathRate~.,data=DF)
+summary(modele_cmplx)
+summary(modele_cmplx)$adj.r.squared
+AIC(modele_cmplx)
+AIC(modele_cmplx, k=log(nrow(DF)))
+```
+
+Stepwise AIC
+
+```{r}
+modele_step_AIC=step(modele_cmplx,direction = "both",trace=FALSE,k=2)
+summary(modele_step_AIC)
+summary(modele_step_AIC)$adj.r.squared
+AIC(modele_step_AIC)
+AIC(modele_step_AIC, k=log(nrow(DF)))
+```
+
+Stepwise BIC
+
+```{r} 
+modele_step_BIC=step(modele_cmplx,direction = "both",trace=FALSE,k=log(nrow(DF)))
+summary(modele_step_BIC)
+
+summary(modele_step_BIC)$adj.r.squared
+AIC(modele_step_BIC)
+AIC(modele_step_BIC, k=log(nrow(DF)))
+```
+
+# PARTIE III
+
+Dans cette troisième partie du projet, nous présenterons sommairement la forme finale des deux modèles construites à l’étape précédente en comparant leur $R^{2}$ ajusté, leur indice d’Akaike AIC et leur indice de BIC. Pour le modèle simple, nous avons retenu le modele_10, car il possèdait le $R^{2}$ ajusté le plus élevé, l’indice AIC et l’indice de BIC le plus faible dans la catégorie des modèles simples dans lesquelles toutes leurs variables explicatives avaient effectivement une p-value inférieur à 0.001 (***). Parallèlement, pour le modèle complexe, nous avons opter pour le modele_step_BIC, car il possédait significativement moins de variables explicatives que le modele_step_AIC et un $R^{2}$ ajusté relativement élevé.
+
+## (3.1) $R^{2}$  AJUSTÉ
+
+Modèle simple
+```{r}
+summary(modele_10)$adj.r.squared
+
+```
+Modèle complexe
+```{r}
+summary(modele_step_BIC)$adj.r.squared
+```
+
+## (3.2) INDICE D’AKAIKE AIC
+
+Modèle simple
+```{r}
+AIC(modele_10)
+```
+Modèle complexe
+```{r}
+AIC(modele_step_BIC)
+```
+
+
+## (3.3) INDICE BIC
+
+Modèle simple
+```{r}
+AIC(modele_10, k=log(nrow(DF)))
+```
+Modèle complexe
+```{r}
+AIC(modele_step_BIC, k=log(nrow(DF)))
+```
+
+
+## (3.4) LISTE DES VARIABLES EXPLICATIVES RETENUES
+
+
+Voici une liste exhaustive des variables explicatives retenues pour le modèle simple :
+
+-	incidenceRate
+-	povertyPercent
+-	States
+-	PctHS18_24
+-	PctBachDeg25_Over
+-	PctWhite
+-	PctOtherRace
+
+Voici une liste exhaustive des variables explicatives retenues pour le modèle complexe :
+
+-	incidenceRate
+-	MedianAgeFemale
+-	PercentMarried
+-	PctHS18_24
+-	PctBachDeg25_Over
+-	PctEmployed16_Over
+-	PctWhite
+-	PctAsian
+-	PctOtherRace
+-	PctMarriedHouseholds
+-	BirthRate
+-	States
+
+
+# CONCLUSION
+
+En somme, notre modèle complexe construit (modèle_step_BIC) est le meilleur modèle linéaire par la méthode des moindres carrés ordinaires, puisqu’il a un $R^{2}$ ajusté plus élevé, un indice AIC et BIC plus faible comparativement au modèle simple. Par conséquent, le modèle complexe nous permet de bien prévoir la moyenne par habitant (100 000) décès par cancer en ayant des variables explicatives autant pertinents.
+
+
